@@ -1,0 +1,8 @@
+# ---
+*.o
+splitter
+test_case
+*id*
+
+
+
