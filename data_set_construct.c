@@ -37,8 +37,8 @@ long data_set_config_map_address = 0;
 long long data_set_config_map_read_start = -1;
 long long data_set_config_map_read_len = -1;
 
-int data_set_config_insert_thread_num = 1;
-int data_set_config_delete_thread_num = 0;
+int data_set_config_insert_thread_num = 2;
+int data_set_config_delete_thread_num = 2;
 
 void set_31bit_zero(char *data)
 {
@@ -551,15 +551,12 @@ void test_insert_proc(void *args)
                 spt_thread_start(g_thrd_id);
             }
 			
-			if(test_stop == 1)
-			{
-				while(1);
-			}
+
 try_again:
             
             PERF_STAT_START(whole_insert);
 			PERF_STAT_START(jhash2_random);
-			hash = xxh32(data, 128, 0);
+			hash = xxh32(data, data_set_config_instance_len, 0);
 			PERF_STAT_END(jhash2_random);
 			if(NULL ==(ret_data =  test_insert_data(data)))
             {
@@ -660,19 +657,16 @@ void test_delete_proc(void *args)
                 spt_thread_exit(g_thrd_id);
                 spt_thread_start(g_thrd_id);
             }
-			if(test_stop == 1)
-			{
-				while(1);
-			}
+
 try_again:
             PERF_STAT_START(whole_delete);
-			hash = xxh32(data, 128, 0);
+			hash = xxh32(data, data_set_config_instance_len, 0);
 			if((ret = test_delete_data(data)) < 0)
             {
                 if(-10000 == ret)
 				{
 					atomic64_add(1,(atomic64_t*)&spt_no_found_num);
-					test_stop=1;
+//					test_stop=1;
 				}
 				else
 				{

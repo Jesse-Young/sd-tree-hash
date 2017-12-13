@@ -205,7 +205,7 @@ int spt_hash_tag_expand_a_bit(cluster_head_t *pclst)
     phash->used_bit++;
     return SPT_OK;
 }
-#if 0
+#if 1
 int spt_del_one_unit_tag(cluster_head_t *pclst, u32 unit_index)
 {
     int i;
@@ -214,7 +214,7 @@ int spt_del_one_unit_tag(cluster_head_t *pclst, u32 unit_index)
     u32 lable_total, hashcode;
 
     lable_total = SPT_HASH_TBL_NDIR_LABELS;
-    for(i=lable_total-1; i>=0; i--)
+    for(i=0; i<lable_total; i++)
     {
         hashcode = ((u32)i<<SPT_HASH_TBL_NDIR_OFFSET) | (unit_index<<SPT_HASH_TBL_IND_OFFSET) 
             | ((1<<SPT_HASH_CODE_RES_BITS)-1);
@@ -224,7 +224,7 @@ int spt_del_one_unit_tag(cluster_head_t *pclst, u32 unit_index)
             spt_debug("spt_constr_tag_by_hashcode return NULL\r\n");
             return SPT_ERR;
         }
-        if((ret = insert_tag(pclst, p, &pghash->pptbl[unit_index][i], flag))!=SPT_OK)
+        if((ret = delete_tag(pclst, p))!=SPT_OK)
         {
             spt_debug("insert_tag return err[%d]\r\n", ret);
             return SPT_ERR;
@@ -239,36 +239,35 @@ int spt_del_one_unit_tag(cluster_head_t *pclst, u32 unit_index)
 int spt_hash_tag_shrink_a_bit(cluster_head_t *pclst)
 {
     u32 total, unit_index, default_bit;
-    int i, ret;
+    int i, ret, used_bit;
 	spt_hash_info* phash = pghash;
-
+	
+	phash->used_bit--;
     if(phash->used_bit == SPT_HASH_TBL_NDIR_BITS)
     {
         default_bit = phash->total_bit - phash->used_bit-1;
         unit_index = (0<<default_bit)|((1<<default_bit)-1);
-        ret = spt_add_one_unit_tag(pclst, unit_index, EXPAND_TAG);
+        ret = spt_del_one_unit_tag(pclst, unit_index);
         if(ret != SPT_OK)
         {
             spt_debug("spt_add_one_unit_tag return err[%d]\r\n", ret);
             return SPT_ERR;
         }
-        phash->used_bit++;
         return SPT_OK;
     }
     i = phash->used_bit - SPT_HASH_TBL_NDIR_BITS;    
     total = 1<<i;
     default_bit = phash->total_bit - phash->used_bit-1;
-    for(i = total-1; i>=0; i--)
+    for(i = 0; i<total; i++)
     {
         unit_index = ((u32)i<<(default_bit+1))|((1<<default_bit)-1);
-        ret = spt_add_one_unit_tag(pclst, unit_index, EXPAND_TAG);
+        ret = spt_del_one_unit_tag(pclst, unit_index);
         if(ret != SPT_OK)
         {
             spt_debug("spt_add_one_unit_tag return err[%d]\r\n", ret);
             return SPT_ERR;
         }    
     }
-    phash->used_bit++;
     return SPT_OK;
 }
 #endif
@@ -289,7 +288,7 @@ int spt_insert_initial_tag(cluster_head_t *pclst)
         spt_debug("spt_add_one_unit_tag return err[%d]\r\n", ret);
         return SPT_ERR;
     }
-	#if 0
+	#if 1
     for(i = 14; i < 23; i++)
     {
         ret = spt_hash_tag_expand_a_bit(pclst);
@@ -4149,7 +4148,7 @@ char *insert_data(cluster_head_t *pclst, char *pdata)
  * @pclst: pointer of sd tree cluster head
  * @pdata: pointer of data to delete
  *
- * Delete data into sd tree and 
+ * Delete data from sd tree and 
  * return the duplicate count in sd tree if delete successful
  * if there is no data match in the tree ,return value < 0
  */
@@ -4217,6 +4216,81 @@ int delete_data(cluster_head_t *pclst, char *pdata)
         return -2;
     }
 } 
+
+/**
+ * delete_data - delete data from sd tree
+ * @pclst: pointer of sd tree cluster head
+ * @pdata: pointer of data to delete
+ *
+ * Delete data from sd tree and 
+ * return the duplicate count in sd tree if delete successful
+ * if there is no data match in the tree ,return value < 0
+ */
+int delete_data_free(cluster_head_t *pclst, char *pdata)
+{
+    cluster_head_t *pnext_clst;
+    query_info_t qinfo = {0};
+    int ret = 0;
+    u32 hashcode;
+    spt_hash_tag tag_info;
+    
+    hashcode = ntohl(*(u32 *)pdata);
+    tag_info = spt_get_hash_tag(pghash, hashcode);
+    if(tag_info.pclst != NULL)
+    {
+        pnext_clst = tag_info.pclst;
+        qinfo.op = SPT_OP_DELETE;
+        qinfo.signpost = 0;
+        qinfo.pstart_vec = (spt_vec *)vec_id_2_ptr(pnext_clst, tag_info.hang_vec);
+        qinfo.startid = tag_info.hang_vec;
+        qinfo.endbit = pnext_clst->endbit;
+        qinfo.data = pdata;
+        qinfo.multiple = 1;
+        qinfo.ref_cnt = -10000;
+        qinfo.free_flag = 1;
+
+        ret = find_data(pnext_clst,&qinfo);
+        if(ret >= 0)
+        {
+            return qinfo.ref_cnt;
+        }
+    }
+    atomic64_add(1, (atomic64_t *)&del_slow_cnt);    
+    /*
+     *first look up in the top cluster.
+     *which next level cluster do the data belong.
+     */
+    pnext_clst = find_next_cluster(pclst, pdata);
+    if(pnext_clst == NULL)
+    {
+        spt_set_errno(SPT_MASKED);
+        return -1;
+    }
+
+    qinfo.op = SPT_OP_DELETE;
+    qinfo.signpost = 0;
+    qinfo.pstart_vec = pnext_clst->pstart;
+    qinfo.startid = pnext_clst->vec_head;
+    qinfo.endbit = pnext_clst->endbit;
+    qinfo.data = pdata;
+    qinfo.multiple = 1;
+	qinfo.ref_cnt = -10000;
+    qinfo.free_flag = 1;
+    /*
+     *insert data into the final cluster
+     */    
+    ret = find_data(pnext_clst,&qinfo);
+    if(ret >= 0)
+    {
+        return qinfo.ref_cnt;
+    }
+    else
+    {
+        spt_set_errno(ret);
+        return -2;
+    }
+}
+
 /* divided and insert tag will not happen at the same time*/
 int insert_tag(cluster_head_t *pclst, char *pdata, spt_hash_tag *ptag, int flag)
 {
@@ -4299,6 +4373,39 @@ int insert_tag(cluster_head_t *pclst, char *pdata, spt_hash_tag *ptag, int flag)
         return ret;
     }
 }
+
+int delete_tag(cluster_head_t *pclst, char *pdata)
+{
+    int ret = 0;
+	spt_thread_start(g_thrd_id);
+	while(1)
+	{
+		ret =  delete_data_free(pclst, pdata);
+		if(ret == 0)
+		{
+			break;
+		}
+		else
+		{
+			ret = spt_get_errno();
+			if(ret == SPT_WAIT_AMT)
+			{
+				spt_thread_exit(g_thrd_id);
+				spt_thread_wait(2,g_thrd_id);
+				spt_thread_start(g_thrd_id);
+			}
+			else
+			{
+				spt_debug("ret:%d\r\n", ret);
+				spt_assert(0);
+			}			
+		}
+	}
+	spt_thread_exit(g_thrd_id);
+	spt_free(pdata);
+	return SPT_OK;
+}
+
 
 
 /**

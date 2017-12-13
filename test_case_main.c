@@ -352,7 +352,7 @@ int main(int argc,char *argv[])
         return 1;
 	}
 	data_pre_process();
-#if 0
+#if 1
 	err = pthread_create(&ntid, NULL, test_divid_thread, (void *)thread_num-1);
 	if (err != 0)
 		printf("can't create thread: %s\n", strerror(err));
@@ -578,7 +578,7 @@ void* test_insert_thread(void *arg)
 	{
 		printf("warning: could not set CPU AFFINITY\r\n");
 	}
-	//while(test_stop == 0)
+	while(test_stop == 0)
 	    test_insert_proc(i);
 	if(i != 0)
 	{	
@@ -600,7 +600,7 @@ void* test_delete_thread(void *arg)
 	{
 		printf("warning: could not set CPU AFFINITY\r\n");
 	}
-	//while(test_stop == 0)
+	while(test_stop == 0)
 	    test_delete_proc(i);
 	while(1)
 	{
@@ -621,12 +621,21 @@ void *test_divid_thread(void *arg)
 	{
 		printf("warning: could not set CPU AFFINITY\r\n");
 	}
-	
+	i = pghash->used_bit;
 	while(1)
 	{
-		sleep(2);
 		//spt_divided_scan(pgclst);
-		if(pghash->used_bit < 23  && test_stop == 0)
+		for(;i>14; i--)
+		{
+			ret = spt_hash_tag_shrink_a_bit(pgclst);
+			if(ret != SPT_OK)
+			{
+				spt_debug("spt_hash_tag_expand_a_bit return err[%d]\r\n", ret);
+				return 0;
+			}
+			sleep(2);
+		}
+		for(;i<23;i++)
 		{
 			ret = spt_hash_tag_expand_a_bit(pgclst);
 			if(ret != SPT_OK)
@@ -634,6 +643,11 @@ void *test_divid_thread(void *arg)
 				spt_debug("spt_hash_tag_expand_a_bit return err[%d]\r\n", ret);
 				return 0;
 			}
+			sleep(2);
+		}
+		if(test_stop == 1)
+		{
+			while(1);
 		}
 	}
 }
