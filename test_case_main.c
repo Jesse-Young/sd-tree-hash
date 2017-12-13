@@ -352,7 +352,7 @@ int main(int argc,char *argv[])
         return 1;
 	}
 	data_pre_process();
-#if 1
+#if 0
 	err = pthread_create(&ntid, NULL, test_divid_thread, (void *)thread_num-1);
 	if (err != 0)
 		printf("can't create thread: %s\n", strerror(err));
@@ -369,7 +369,7 @@ for(i = 0;  i  < data_set_config_insert_thread_num ; i++)
         if (err != 0)
             printf("can't create thread: %s\n", strerror(err));
     }
-	sleep(1);  
+	//sleep(1);  
 
 	
     for(i = 0;  i  < data_set_config_delete_thread_num ; i++)
@@ -578,7 +578,7 @@ void* test_insert_thread(void *arg)
 	{
 		printf("warning: could not set CPU AFFINITY\r\n");
 	}
-	while(test_stop == 0)
+	//while(test_stop == 0)
 	    test_insert_proc(i);
 	if(i != 0)
 	{	
@@ -600,7 +600,7 @@ void* test_delete_thread(void *arg)
 	{
 		printf("warning: could not set CPU AFFINITY\r\n");
 	}
-	while(test_stop == 0)
+	//while(test_stop == 0)
 	    test_delete_proc(i);
 	while(1)
 	{
@@ -625,6 +625,7 @@ void *test_divid_thread(void *arg)
 	while(1)
 	{
 		//spt_divided_scan(pgclst);
+		#if 0
 		for(;i>14; i--)
 		{
 			ret = spt_hash_tag_shrink_a_bit(pgclst);
@@ -649,5 +650,6 @@ void *test_divid_thread(void *arg)
 		{
 			while(1);
 		}
+		#endif
 	}
 }

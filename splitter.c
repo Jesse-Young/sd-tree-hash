@@ -288,7 +288,7 @@ int spt_insert_initial_tag(cluster_head_t *pclst)
         spt_debug("spt_add_one_unit_tag return err[%d]\r\n", ret);
         return SPT_ERR;
     }
-	#if 1
+	#if 0
     for(i = 14; i < 23; i++)
     {
         ret = spt_hash_tag_expand_a_bit(pclst);
@@ -1849,6 +1849,26 @@ int find_lowest_data(cluster_head_t *pclst, spt_vec *start_vec)
         }
     }
 }
+
+int find_rightest_vec(cluster_head_t *pclst, int curid)
+{
+    spt_vec *pcur, cur_vec;
+	int cur;
+
+	cur = curid;
+    pcur = (spt_vec *)vec_id_2_ptr(pclst, curid);
+    cur_vec.val = pcur->val;
+
+    while(cur_vec.type != SPT_VEC_DATA)
+    {
+    	cur = cur_vec.rd;
+		pcur = (spt_vec *)vec_id_2_ptr(pclst, cur);
+        cur_vec.val = pcur->val;
+    }
+	return cur;
+}
+
+
 /*nth>=1, divided thread call it to choose one data to construct virtual board*/
 char *get_about_Nth_smallest_data(spt_sort_info *psort, int nth)
 {
@@ -2389,10 +2409,11 @@ void print_debug_path(int id)
  * @query_info_t: pointer of data query info
  * return 1 not found ;0 successful; < 0 error
  */
+u64 g_fast_ins_del=0;
 int find_data(cluster_head_t *pclst, query_info_t *pqinfo)
 {
     int cur_data, vecid, cmp, op, cur_vecid, pre_vecid, next_vecid, cnt;
-    spt_vec *pcur, *pnext, *ppre;
+    spt_vec *pcur, *pnext, *ppre, *ptmp;
     spt_vec tmp_vec, cur_vec, next_vec;
     char *pcur_data;//*ppre_data,
     u64 startbit, endbit, len, fs_pos, signpost;
@@ -2406,6 +2427,7 @@ int find_data(cluster_head_t *pclst, query_info_t *pqinfo)
     spt_dh *pdh;
 //    spt_cb_get_key get_key;
     spt_cb_end_key finish_key_cb;
+	int fast_flag = 0;
 
     if(pclst->status == SPT_WAIT_AMT)
     {
@@ -2446,6 +2468,11 @@ int find_data(cluster_head_t *pclst, query_info_t *pqinfo)
     cur_data = SPT_INVALID;
 
 refind_start:
+	if(fast_flag == 1)
+	{
+		fast_flag = 0;
+		atomic64_sub(1, (atomic64_t *)&g_fast_ins_del);
+	}
     signpost = pqinfo->signpost;
     pcur = pqinfo->pstart_vec;
     cur_vecid = pre_vecid = pqinfo->startid;
@@ -3009,7 +3036,22 @@ refind_forward:
                     }
                 }
             }
-            
+			if(pdh->pdata == pdata)
+			{
+				vecid = find_rightest_vec(pclst, cur_vecid);
+				ptmp = (spt_vec *)vec_id_2_ptr(pclst, vecid);
+				tmp_vec.val = ptmp->val;
+				if(tmp_vec.status == SPT_VEC_VALID
+					&& tmp_vec.type == SPT_VEC_DATA
+					&& tmp_vec.rd == cur_data)
+				{
+					cur_vec.val = tmp_vec.val;
+					pcur = ptmp;
+					atomic64_add(1, (atomic64_t *)&g_fast_ins_del);
+					fast_flag = 1;
+					break;
+				}
+			}			
             cmp = diff_identify(prdata, pcur_data, startbit, len, &cmpres);
 
             #ifdef DEBUG_FIND_PATH
